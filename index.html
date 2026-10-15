@@ -702,141 +702,111 @@ window.addEventListener("error",function(e){
 });
 </script>
 <script>
-/* ===== Integrasi Penilaian Guru & Respons Guru (Google Apps Script) ===== */
-let mdSessionId = "";
-let mdStudentName = "";
-let mdStudentClass = "";
-let mdTeacherPin = "";
-function mdNewId(){
-  return "MD-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2,8).toUpperCase();
+/* Integrasi GitHub Pages <-> Apps Script melalui JSONP (baca) dan POST form (hantar). */
+const MD_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzEG46XEkf5MuUByz5MacZSXTymyD4gGBhTJCDRcdbQI-r3ayHiNDRMGti5t41RiP3V/exec";
+let mdSessionId = "", mdStudentName = "", mdStudentClass = "", mdTeacherPin = "";
+function mdNewId(){return "MD-"+Date.now().toString(36).toUpperCase()+"-"+Math.random().toString(36).slice(2,8).toUpperCase();}
+function mdEscape(v){return String(v==null?"":v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function mdShowModal(title,body){
+ let modal=document.getElementById("mdModal");
+ if(!modal){modal=document.createElement("div");modal.id="mdModal";modal.style.cssText="position:fixed;inset:0;background:#3a2c2299;z-index:99999;display:flex;align-items:center;justify-content:center;padding:14px";
+ modal.innerHTML='<div style="width:min(900px,100%);max-height:90vh;overflow:auto;background:#fffaf0;border:3px solid #cfae72;border-radius:18px;padding:20px;box-shadow:0 12px 40px #0004"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><h2 id="mdModalTitle" style="margin:0"></h2><button type="button" id="mdModalClose" class="secondary">TUTUP</button></div><div id="mdModalBody" style="margin-top:14px"></div></div>';document.body.appendChild(modal);modal.querySelector("#mdModalClose").onclick=()=>modal.remove();}
+ modal.querySelector("#mdModalTitle").textContent=title;modal.querySelector("#mdModalBody").innerHTML=body;
 }
-function mdEscape(v){
-  return String(v == null ? "" : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function mdJsonp(params,callback){
+ const cb="mdcb_"+Date.now()+"_"+Math.random().toString(36).slice(2);
+ const script=document.createElement("script");const query=new URLSearchParams({...params,callback:cb});
+ window[cb]=data=>{try{callback(data);}finally{delete window[cb];script.remove();}};
+ script.onerror=()=>{delete window[cb];script.remove();callback({ok:false,message:"Tidak dapat menghubungi Apps Script. Semak URL/deployment."});};
+ script.src=MD_WEBAPP_URL+"?"+query.toString();document.body.appendChild(script);
 }
-function mdServerReady(){
-  return !!(window.google && google.script && google.script.run);
-}
-function mdShowModal(title, body){
-  let modal = document.getElementById("mdModal");
-  if(!modal){
-    modal=document.createElement("div"); modal.id="mdModal";
-    modal.style.cssText="position:fixed;inset:0;background:#3a2c2299;z-index:99999;display:flex;align-items:center;justify-content:center;padding:14px";
-    modal.innerHTML='<div style="width:min(900px,100%);max-height:90vh;overflow:auto;background:#fffaf0;border:3px solid #cfae72;border-radius:18px;padding:20px;box-shadow:0 12px 40px #0004"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><h2 id="mdModalTitle" style="margin:0"></h2><button type="button" id="mdModalClose" class="secondary">TUTUP</button></div><div id="mdModalBody" style="margin-top:14px"></div></div>';
-    document.body.appendChild(modal);
-    modal.querySelector("#mdModalClose").onclick=()=>modal.remove();
-  }
-  modal.querySelector("#mdModalTitle").textContent=title;
-  modal.querySelector("#mdModalBody").innerHTML=body;
-}
-function mdStatus(el, msg){ if(el) el.textContent=msg; }
 function mdOpenTeacher(){
-  if(!mdServerReady()){ mdShowModal("Penilaian Guru",'<p>Fungsi ini hanya aktif selepas HTML dipasang sebagai Web App Google Apps Script.</p><p>Sila buka URL Web App yang berakhir dengan <b>/exec</b>, bukan fail HTML yang dibuka terus dari komputer.</p>'); return; }
-  mdShowModal("Penilaian Guru",'<p>Masukkan PIN guru untuk membuka senarai penghantaran murid.</p><label for="mdPin">PIN guru</label><input id="mdPin" type="password" autocomplete="off" placeholder="PIN guru"><button type="button" id="mdLoadSubmissions">BUKA PENILAIAN</button><p id="mdTeacherStatus" role="status"></p>');
-  document.getElementById("mdLoadSubmissions").onclick=()=>{
-    const pin=document.getElementById("mdPin").value;
-    mdStatus(document.getElementById("mdTeacherStatus"),"Memuatkan penghantaran…");
-    google.script.run.withSuccessHandler(data=>mdRenderSubmissions(data))
-      .withFailureHandler(err=>mdStatus(document.getElementById("mdTeacherStatus"),"Ralat: "+(err.message||err)))
-      .teacherListSubmissions(pin);
-  };
+ mdShowModal("Penilaian Guru",'<p>Masukkan PIN guru untuk melihat penghantaran murid.</p><label for="mdPin">PIN guru</label><input id="mdPin" type="password" placeholder="PIN guru"><button type="button" id="mdLoadSubmissions">BUKA PENILAIAN</button><p id="mdTeacherStatus" role="status"></p>');
+ document.getElementById("mdLoadSubmissions").onclick=()=>{mdTeacherPin=document.getElementById("mdPin").value;document.getElementById("mdTeacherStatus").textContent="Memuatkan…";mdJsonp({action:"teacherListSubmissions",pin:mdTeacherPin},mdRenderSubmissions);};
 }
 function mdRenderSubmissions(data){
-  if(!data || !data.ok){ mdStatus(document.getElementById("mdTeacherStatus"), data && data.message || "Tidak dapat memuatkan rekod."); return; }
-  mdTeacherPin=document.getElementById("mdPin")?.value || mdTeacherPin;
-  const body=document.getElementById("mdModalBody");
-  if(!data.items || !data.items.length){body.innerHTML='<p>Belum ada murid menghantar Misi 5.</p><button type="button" id="mdRefresh">SEGAR SEMULA</button>';document.getElementById("mdRefresh").onclick=()=>google.script.run.withSuccessHandler(mdRenderSubmissions).teacherListSubmissions(mdTeacherPin);return;}
-  body.innerHTML='<p>Semak jawapan murid, dengar rakaman jika tersedia, kemudian simpan markah dan respons.</p><div id="mdSubList"></div>';
-  const list=document.getElementById("mdSubList");
-  data.items.forEach(item=>{
-    const card=document.createElement("section");
-    card.style.cssText="background:#fff;border:2px solid #e0cfa8;border-radius:12px;padding:14px;margin:12px 0";
-    card.innerHTML='<h3>'+mdEscape(item.name)+' — '+mdEscape(item.klass)+'</h3><p><b>ID sesi:</b> '+mdEscape(item.sessionId)+'<br><b>Status:</b> '+mdEscape(item.status)+'</p>'+
-      '<p><b>Soalan 1:</b><br>'+mdEscape(item.answer1||"—")+'</p><p><b>Soalan 2:</b><br>'+mdEscape(item.answer2||"—")+'</p><p><b>Soalan 3:</b><br>'+mdEscape(item.answer3||"—")+'</p>'+
-      (item.audioUrl?'<p><a href="'+mdEscape(item.audioUrl)+'" target="_blank" rel="noopener">Dengar / buka rakaman suara</a></p>':'<p>Tiada rakaman suara dihantar.</p>')+
-      '<label>Markah guru</label><input type="number" min="0" max="20" id="mdScore_'+mdEscape(item.sessionId)+'" value="'+mdEscape(item.teacherScore==null?"":item.teacherScore)+'" placeholder="Markah">'+
-      '<label>Respons guru kepada murid</label><textarea id="mdFeedback_'+mdEscape(item.sessionId)+'" rows="3" placeholder="Tulis maklum balas untuk murid">'+mdEscape(item.teacherFeedback||"")+'</textarea>'+
-      '<button type="button" data-save-assessment="'+mdEscape(item.sessionId)+'">SIMPAN PENILAIAN & RESPONS</button><span id="mdSaveStatus_'+mdEscape(item.sessionId)+'" role="status"></span>';
-    list.appendChild(card);
-  });
-  list.querySelectorAll("[data-save-assessment]").forEach(btn=>btn.onclick=()=>{
-    const id=btn.dataset.saveAssessment;
-    const score=document.getElementById("mdScore_"+id).value;
-    const feedback=document.getElementById("mdFeedback_"+id).value;
-    const status=document.getElementById("mdSaveStatus_"+id);
-    mdStatus(status," Menyimpan…");
-    google.script.run.withSuccessHandler(res=>mdStatus(status,res.message||"Disimpan."))
-      .withFailureHandler(err=>mdStatus(status," Ralat: "+(err.message||err)))
-      .teacherSaveAssessment(mdTeacherPin,id,score,feedback);
-  });
+ if(!data||!data.ok){const s=document.getElementById("mdTeacherStatus");if(s)s.textContent=data&&data.message||"Gagal memuatkan rekod.";return;}
+ const body=document.getElementById("mdModalBody");
+ if(!data.items||!data.items.length){body.innerHTML='<p>Belum ada penghantaran murid.</p><button type="button" id="mdRefresh">SEGAR SEMULA</button>';document.getElementById("mdRefresh").onclick=()=>mdJsonp({action:"teacherListSubmissions",pin:mdTeacherPin},mdRenderSubmissions);return;}
+ body.innerHTML='<p>Semak jawapan, buka rakaman suara jika tersedia, kemudian simpan markah dan respons.</p><div id="mdSubList"></div>';
+ const list=document.getElementById("mdSubList");
+ data.items.forEach(item=>{
+  const card=document.createElement("section");card.style.cssText="background:#fff;border:2px solid #e0cfa8;border-radius:12px;padding:14px;margin:12px 0";
+  card.innerHTML='<h3>'+mdEscape(item.name)+' — '+mdEscape(item.klass)+'</h3><p><b>ID sesi:</b> '+mdEscape(item.sessionId)+'<br><b>Status:</b> '+mdEscape(item.status)+'</p>'+
+   '<p><b>Jawapan 1:</b><br>'+mdEscape(item.answer1||"—")+'</p><p><b>Jawapan 2:</b><br>'+mdEscape(item.answer2||"—")+'</p><p><b>Jawapan 3:</b><br>'+mdEscape(item.answer3||"—")+'</p>'+
+   (item.audioUrl?'<p><a href="'+mdEscape(item.audioUrl)+'" target="_blank" rel="noopener">Buka rakaman suara</a></p>':'<p>Tiada rakaman suara dihantar.</p>')+
+   '<label>Markah guru (0–100)</label><input type="number" min="0" max="100" id="mdScore_'+mdEscape(item.sessionId)+'" value="'+mdEscape(item.teacherScore==null?"":item.teacherScore)+'">'+
+   '<label>Respons guru</label><textarea id="mdFeedback_'+mdEscape(item.sessionId)+'" rows="3">'+mdEscape(item.teacherFeedback||"")+'</textarea>'+
+   '<button type="button" data-save-assessment="'+mdEscape(item.sessionId)+'">SIMPAN PENILAIAN</button> <span id="mdSaveStatus_'+mdEscape(item.sessionId)+'"></span>';
+  list.appendChild(card);
+ });
+ list.querySelectorAll("[data-save-assessment]").forEach(btn=>btn.onclick=()=>{
+  const id=btn.dataset.saveAssessment,score=document.getElementById("mdScore_"+id).value,feedback=document.getElementById("mdFeedback_"+id).value,status=document.getElementById("mdSaveStatus_"+id);
+  status.textContent=" Menyimpan…";
+  mdJsonp({action:"teacherSaveAssessment",pin:mdTeacherPin,sessionId:id,score:score,feedback:feedback},res=>status.textContent=" "+(res.message||"Selesai."));
+ });
 }
 function mdOpenStudentFeedback(){
-  if(!mdSessionId){mdShowModal("Respons Guru","<p>Sila mulakan permainan dengan nama dan kelas dahulu.</p>");return;}
-  if(!mdServerReady()){mdShowModal("Respons Guru",'<p>Respons guru akan tersedia selepas game disambungkan ke Google Apps Script Web App.</p>');return;}
-  mdShowModal("Respons Guru",'<p>Sedang menyemak respons untuk sesi murid ini…</p>');
-  google.script.run.withSuccessHandler(res=>{
-    const body=document.getElementById("mdModalBody");
-    if(!res || !res.found){body.innerHTML='<p>Belum ada respons daripada guru. Cuba semula selepas guru selesai membuat penilaian.</p>';return;}
-    body.innerHTML='<p><b>Nama:</b> '+mdEscape(res.name)+'<br><b>Kelas:</b> '+mdEscape(res.klass)+'</p><p><b>Markah guru:</b> '+mdEscape(res.teacherScore==null?"Belum dinilai":res.teacherScore)+'</p><div style="background:#eaf5e3;border:2px solid #9dbb8f;border-radius:12px;padding:14px;white-space:pre-wrap">'+mdEscape(res.teacherFeedback||"Guru belum menulis respons.")+'</div>';
-  }).withFailureHandler(err=>{document.getElementById("mdModalBody").innerHTML='<p>Ralat mendapatkan respons: '+mdEscape(err.message||err)+'</p>';}).getStudentFeedback(mdSessionId,mdStudentName,mdStudentClass);
+ if(!mdSessionId){mdShowModal("Respons Guru","<p>Sila mulakan permainan dengan nama dan kelas dahulu.</p>");return;}
+ mdShowModal("Respons Guru","<p>Sedang menyemak respons guru…</p>");
+ mdJsonp({action:"getStudentFeedback",sessionId:mdSessionId,name:mdStudentName,klass:mdStudentClass},res=>{
+  const body=document.getElementById("mdModalBody");
+  if(!res||!res.found){body.innerHTML="<p>Belum ada respons guru untuk sesi ini.</p>";return;}
+  body.innerHTML='<p><b>Nama:</b> '+mdEscape(res.name)+'<br><b>Kelas:</b> '+mdEscape(res.klass)+'</p><p><b>Markah guru:</b> '+mdEscape(res.teacherScore==null?"Belum dinilai":res.teacherScore)+'</p><div style="background:#eaf5e3;border:2px solid #9dbb8f;border-radius:12px;padding:14px;white-space:pre-wrap">'+mdEscape(res.teacherFeedback||"Guru belum menulis respons.")+'</div>';
+ });
 }
 document.getElementById("teacherOpenStart")?.addEventListener("click",mdOpenTeacher);
 document.getElementById("studentFeedbackBtn")?.addEventListener("click",mdOpenStudentFeedback);
 
-/* Mulakan ID sesi baharu setiap kali murid masuk ke peta. */
-const mdOriginalEnterMap = document.getElementById("enterMap")?.onclick;
-if(document.getElementById("enterMap")){
-  document.getElementById("enterMap").onclick=function(){
-    const result=mdOriginalEnterMap ? mdOriginalEnterMap.apply(this,arguments) : undefined;
-    if(name && klass){
-      mdSessionId=mdNewId(); mdStudentName=name; mdStudentClass=klass;
-      // Pastikan paparan sesi baharu tidak membawa jawapan/audio lama.
-      audioBlob=null;
-    }
-    return result;
-  };
-}
+/* Sesi unik selepas murid masuk peta. */
+const mdOriginalEnterMap=document.getElementById("enterMap")?.onclick;
+if(document.getElementById("enterMap"))document.getElementById("enterMap").onclick=function(){
+ const result=mdOriginalEnterMap?mdOriginalEnterMap.apply(this,arguments):undefined;
+ if(name&&klass){mdSessionId=mdNewId();mdStudentName=name;mdStudentClass=klass;}
+ return result;
+};
 
-/* Hantar jawapan Misi 5 ke backend. Event capture mengelakkan handler prototaip lama menghantar sebelum backend. */
-document.addEventListener("click", function(ev){
-  const btn=ev.target.closest("#f5");
-  if(!btn) return;
-  ev.preventDefault(); ev.stopImmediatePropagation();
-  const a1=document.getElementById("written")?.value.trim()||"";
-  const a2=document.getElementById("written2")?.value.trim()||"";
-  const a3=document.getElementById("written3")?.value.trim()||"";
-  if(a1.length<5||a2.length<5||a3.length<5){showNotice("Sila isi semua jawapan bertulis dahulu.");return;}
-  if(!mdServerReady()){showNotice("Jawapan belum disimpan dalam talian. Buka game melalui URL Web App Google Apps Script (/exec).");return;}
-  if(!mdSessionId){mdSessionId=mdNewId();mdStudentName=name;mdStudentClass=klass;}
-  btn.disabled=true; btn.textContent="SEDANG MENGHANTAR…";
-  const payload={sessionId:mdSessionId,name:mdStudentName||name,klass:mdStudentClass||klass,score:score,answer1:a1,answer2:a2,answer3:a3,avatar:avatar,completedMissions:Object.keys(done).map(Number),clientTime:new Date().toISOString()};
-  const send=(audioData,audioMime)=>{
-    payload.audioData=audioData||"";payload.audioMime=audioMime||"";
-    google.script.run.withSuccessHandler(res=>{
-      btn.disabled=false;btn.textContent="HANTAR LAPORAN AKHIR →";
-      if(!res||!res.ok){showNotice(res&&res.message||"Penghantaran tidak berjaya. Cuba lagi.");return;}
-      finish(4,12,"Laporan akhir telah dihantar. Status: menunggu penilaian guru. ID sesi: "+mdSessionId);
-    }).withFailureHandler(err=>{
-      btn.disabled=false;btn.textContent="HANTAR LAPORAN AKHIR →";
-      showNotice("Penghantaran gagal: "+(err.message||err)+". Jawapan masih pada skrin; cuba hantar semula.");
-    }).submitStudentReport(payload);
-  };
-  if(audioBlob){
-    const reader=new FileReader();
-    reader.onload=()=>send(String(reader.result).split(",")[1]||"",audioBlob.type||"audio/webm");
-    reader.onerror=()=>send("","");
-    reader.readAsDataURL(audioBlob);
-  } else send("","");
-}, true);
-
-/* Bersihkan state dan semua input apabila guru/murid memulakan semula sesi. */
-const mdOriginalRestart = document.getElementById("restart")?.onclick;
-if(document.getElementById("restart")){
-  document.getElementById("restart").onclick=function(){
-    const result=mdOriginalRestart ? mdOriginalRestart.apply(this,arguments) : undefined;
-    mdSessionId="";mdStudentName="";mdStudentClass="";audioBlob=null;
-    return result;
-  };
+/* POST melalui form tersembunyi: mengelakkan sekatan CORS pada GitHub Pages. */
+function mdPostReport(payload,button){
+ let frame=document.getElementById("mdPostFrame");
+ if(!frame){frame=document.createElement("iframe");frame.name="mdPostFrame";frame.id="mdPostFrame";frame.style.display="none";document.body.appendChild(frame);}
+ let form=document.getElementById("mdPostForm");
+ if(form)form.remove();
+ form=document.createElement("form");form.id="mdPostForm";form.method="POST";form.action=MD_WEBAPP_URL;form.target="mdPostFrame";form.style.display="none";
+ const input=document.createElement("input");input.name="payload";input.value=JSON.stringify(payload);form.appendChild(input);
+ document.body.appendChild(form);
+ const timeout=setTimeout(()=>{if(button){button.disabled=false;button.textContent="HANTAR LAPORAN AKHIR →";}showNotice("Penghantaran telah dihantar. Semak tab Respons Murid untuk mengesahkan rekod.");},8000);
+ window.addEventListener("message",function handler(ev){
+  if(ev.data&&ev.data.type==="md-submit-result"){
+   clearTimeout(timeout);window.removeEventListener("message",handler);
+   if(button){button.disabled=false;button.textContent="HANTAR LAPORAN AKHIR →";}
+   if(ev.data.ok){showNotice("Jawapan berjaya dihantar dan disimpan. ID sesi: "+payload.sessionId);}
+   else showNotice("Penghantaran gagal: "+(ev.data.message||"Sila cuba semula."));
+  }
+ });
+ form.submit();
 }
+document.addEventListener("click",function(ev){
+ const btn=ev.target.closest("#f5");if(!btn)return;
+ ev.preventDefault();ev.stopImmediatePropagation();
+ const a1=document.getElementById("written")?.value.trim()||"",a2=document.getElementById("written2")?.value.trim()||"",a3=document.getElementById("written3")?.value.trim()||"";
+ if(a1.length<5||a2.length<5||a3.length<5){showNotice("Sila isi semua jawapan bertulis dahulu.");return;}
+ if(!mdSessionId){mdSessionId=mdNewId();mdStudentName=name;mdStudentClass=klass;}
+ btn.disabled=true;btn.textContent="SEDANG MENGHANTAR…";
+ const payload={sessionId:mdSessionId,name:mdStudentName||name,klass:mdStudentClass||klass,score:score,answer1:a1,answer2:a2,answer3:a3,avatar:avatar,completedMissions:Object.keys(done).map(Number),clientTime:new Date().toISOString(),audioData:"",audioMime:""};
+ const send=()=>mdPostReport(payload,btn);
+ if(audioBlob){
+  const reader=new FileReader();
+  reader.onload=()=>{payload.audioData=String(reader.result).split(",")[1]||"";payload.audioMime=audioBlob.type||"audio/webm";send();};
+  reader.onerror=()=>{showNotice("Rakaman tidak dapat dibaca. Cuba rakam semula.");btn.disabled=false;btn.textContent="HANTAR LAPORAN AKHIR →";};
+  reader.readAsDataURL(audioBlob);
+ }else send();
+},true);
+const mdOriginalRestart=document.getElementById("restart")?.onclick;
+if(document.getElementById("restart"))document.getElementById("restart").onclick=function(){
+ const result=mdOriginalRestart?mdOriginalRestart.apply(this,arguments):undefined;
+ mdSessionId="";mdStudentName="";mdStudentClass="";audioBlob=null;return result;
+};
 </script>
 
 </body></html>
